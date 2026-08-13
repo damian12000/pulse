@@ -1,5 +1,6 @@
 package com.pulse.core.data
 
+import com.pulse.core.database.FoodCatalogDao
 import com.pulse.core.database.dao.FoodDao
 import com.pulse.core.database.dao.PendingLookupDao
 import com.pulse.core.database.dao.FoodWithServings
@@ -83,21 +84,30 @@ class DefaultFoodRepository @Inject constructor(
     private val foodDao: FoodDao,
     private val pendingLookupDao: PendingLookupDao,
     private val sourceChain: FoodSourceChain,
+    private val bundledData: BundledDataManager,
     private val clock: Clock = Clock.System,
 ) : FoodRepository {
 
     /**
      * Local first, always.
      *
-     * The bundled database holds 313k barcodes, so the overwhelming majority of
-     * scans never touch the network. Only a genuine local miss consults remote
-     * sources, and a remote hit is cached so the second scan is local too.
+     * Three tiers before the network: foods already in the app database, then
+     * the downloaded catalog (313,442 barcodes), then remote sources. The
+     * overwhelming majority of scans never leave the device.
      */
     override suspend fun resolveBarcode(rawBarcode: String, online: Boolean): BarcodeResult {
         val ean13 = BarcodeNormalizer.toEan13(rawBarcode)
             ?: return BarcodeResult.Unreadable(rawBarcode)
 
         localHit(ean13)?.let { return it }
+
+        // The catalog is read-only and its rows cannot satisfy diary_entry's
+        // foreign key, so a hit is adopted into the app database before being
+        // returned — the same copy-on-use rule remote results follow.
+        catalog()?.findByBarcode(ean13)?.let { fromCatalog ->
+            adopt(fromCatalog)
+            localHit(ean13)?.let { return it }
+        }
 
         if (!online) {
             queueForRetry(ean13)
@@ -228,9 +238,48 @@ class DefaultFoodRepository @Inject constructor(
         if (hit.servings.isEmpty()) add(NutrientField.SERVING)
     }
 
+    /**
+     * Searches the app database and the downloaded catalog, merged.
+     *
+     * The app database goes first because it holds the user's own foods and
+     * anything they've logged before — the things most likely to be wanted
+     * again. Catalog results fill in behind, de-duplicated by id so a food
+     * already adopted doesn't appear twice.
+     */
     override suspend fun search(query: String, limit: Int): List<FoodWithServings> {
         val prepared = prepareFtsQuery(query) ?: return emptyList()
-        return foodDao.search(prepared, limit)
+
+        val local = foodDao.search(prepared, limit)
+        if (local.size >= limit) return local
+
+        val catalogDao = catalog() ?: return local
+        val seen = local.mapTo(mutableSetOf()) { it.food.id }
+        val fromCatalog = runCatching { catalogDao.search(prepared, limit) }
+            .getOrDefault(emptyList())
+            .filter { it.food.id !in seen }
+
+        return (local + fromCatalog).take(limit)
+    }
+
+    /** Null until the catalog has been downloaded; search still works without it. */
+    private suspend fun catalog(): FoodCatalogDao? =
+        runCatching { bundledData.openIfDownloaded()?.catalogDao() }.getOrNull()
+
+    /**
+     * Copies a catalog row into the app database.
+     *
+     * Catalog rows live in a separate read-only file and cannot satisfy
+     * `diary_entry`'s foreign key. Adopting on first use keeps the writable
+     * database small — 326k unused foods stay out of it, and out of backups.
+     *
+     * The id is preserved so adopting twice is idempotent and any existing
+     * diary references stay valid.
+     */
+    private suspend fun adopt(item: FoodWithServings) {
+        if (foodDao.findById(item.food.id) != null) return
+        val now = clock.nowMillis()
+        foodDao.upsert(item.food.copy(createdAt = now, updatedAt = now))
+        if (item.servings.isNotEmpty()) foodDao.insertServings(item.servings)
     }
 
     override fun observeRecent(limit: Int) = foodDao.observeRecent(limit)

@@ -8,6 +8,7 @@ import com.pulse.core.database.entity.FoodServingEntity
 import com.pulse.core.database.entity.FoodSource
 import com.pulse.core.database.entity.MealType
 import com.pulse.core.model.FoodNutrition
+import com.pulse.core.network.AssetDownloader
 import com.pulse.core.network.FoodDataSource
 import com.pulse.core.network.FoodSourceChain
 import com.pulse.core.network.RemoteFood
@@ -58,7 +59,11 @@ class RepositoryTest {
         ).allowMainThreadQueries().build()
 
         val chain = FoodSourceChain(listOf(fakeSource))
-        foods = DefaultFoodRepository(db.foodDao(), db.pendingLookupDao(), chain, clock)
+        val bundled = BundledDataManager(
+            ApplicationProvider.getApplicationContext(),
+            AssetDownloader(okhttp3.OkHttpClient()),
+        )
+        foods = DefaultFoodRepository(db.foodDao(), db.pendingLookupDao(), chain, bundled, clock)
         diary = DefaultDiaryRepository(db.diaryDao(), db.foodDao(), clock)
         water = DefaultWaterRepository(db.waterDao(), clock)
     }

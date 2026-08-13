@@ -1,5 +1,6 @@
 package com.pulse.core.network.di
 
+import com.pulse.core.network.AssetDownloader
 import com.pulse.core.network.FoodDataSource
 import com.pulse.core.network.FoodSourceChain
 import com.pulse.core.network.OpenFoodFactsDataSource
@@ -50,6 +51,24 @@ object NetworkModule {
     @Singleton
     fun provideOpenFoodFacts(client: OkHttpClient): OpenFoodFactsDataSource =
         OpenFoodFactsDataSource(client)
+
+    /**
+     * Its own client: the shared one has short timeouts tuned for the scanner's
+     * hot path, which would abort a 67 MB download partway through.
+     */
+    @Provides
+    @Singleton
+    fun provideAssetDownloader(): AssetDownloader = AssetDownloader(
+        OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            // No call timeout: a large download on a slow connection is not a
+            // stuck request, and the flow is cancellable anyway.
+            .callTimeout(0, TimeUnit.MILLISECONDS)
+            .retryOnConnectionFailure(true)
+            .addInterceptor(userAgentInterceptor())
+            .build(),
+    )
 
     /**
      * Chain order is priority order. Keyed sources (FatSecret, Nutritionix,

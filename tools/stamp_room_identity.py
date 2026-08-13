@@ -25,21 +25,27 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_GLOB = str(ROOT / "core/database/schemas/**/*.json")
 
-# Each bundled asset ships only a subset of the entities. The rest are created
-# by Room on first open; a prepopulated DB need not contain every table.
-ASSETS: dict[str, set[str]] = {
-    "data/build/opennutrition.db": {"food", "food_serving"},
-    "data/build/exercises.db": {"exercise"},
+# Each bundled asset ships only a subset of the entities, and each is opened by
+# a SPECIFIC Room database class — which matters, because every database has its
+# own identity hash. Stamping an asset with the wrong one fails at open time
+# with a schema-mismatch error that points nowhere useful.
+#
+#   opennutrition.db -> FoodCatalogDatabase (downloaded, read-only catalog)
+#   exercises.db     -> PulseDatabase       (APK asset, prepopulates the app DB)
+ASSETS: dict[str, tuple[str, set[str]]] = {
+    "data/build/opennutrition.db": ("FoodCatalogDatabase", {"food", "food_serving"}),
+    "data/build/exercises.db": ("PulseDatabase", {"exercise"}),
 }
 
 ROOM_MASTER_ID = 42
 
 
-def load_schema() -> dict:
-    files = sorted(glob.glob(SCHEMA_GLOB, recursive=True))
+def load_schema(db_class: str) -> tuple[dict, str]:
+    """Load the exported schema for one specific Room database class."""
+    files = [f for f in glob.glob(SCHEMA_GLOB, recursive=True) if db_class in f]
     if not files:
         sys.exit(
-            "No Room schema JSON found.\n"
+            f"No Room schema JSON found for {db_class}.\n"
             "Compile the database module first:\n"
             "    ./gradlew.bat :core:database:assembleDebug"
         )
@@ -76,15 +82,9 @@ def main() -> None:
                     help="stamp even if validation reports problems")
     args = ap.parse_args()
 
-    schema, schema_file = load_schema()
-
     print("=" * 72)
     print("ROOM SCHEMA VALIDATION")
     print("=" * 72)
-    print(f"  schema file  : {Path(schema_file).relative_to(ROOT)}")
-    print(f"  version      : {schema['version']}")
-    print(f"  identityHash : {schema['identityHash']}")
-    print()
 
     targets = (
         {str(args.db.as_posix()).replace(str(ROOT.as_posix()) + "/", ""): None}
@@ -92,18 +92,27 @@ def main() -> None:
     )
 
     failed = False
-    for rel_path, tables in targets.items():
-        db_path = ROOT / rel_path
-        if tables is None:
-            tables = ASSETS.get(rel_path)
-            if tables is None:
+    for rel_path, spec in targets.items():
+        if spec is None:
+            spec = ASSETS.get(rel_path)
+            if spec is None:
                 sys.exit(f"Unknown asset {rel_path}; add it to ASSETS.")
+        db_class, tables = spec
+
+        db_path = ROOT / rel_path
         if not db_path.exists():
-            print(f"  SKIP {rel_path} — not built")
+            print(f"\n  SKIP {rel_path} — not built")
             continue
+
+        schema, schema_file = load_schema(db_class)
+        print()
+        print("-" * 72)
+        print(f"  opened by    : {db_class}")
+        print(f"  schema file  : {Path(schema_file).relative_to(ROOT)}")
+        print(f"  identityHash : {schema['identityHash']}")
+
         if not stamp_one(db_path, tables, schema, args.force):
             failed = True
-        print()
 
     if failed:
         sys.exit(1)
@@ -113,8 +122,7 @@ def stamp_one(db_path: Path, bundled_tables: set[str], schema: dict, force: bool
     identity_hash = schema["identityHash"]
     version = schema["version"]
 
-    print("-" * 72)
-    print(f"  database : {db_path.relative_to(ROOT)}")
+    print(f"  database     : {db_path.relative_to(ROOT)}")
 
     entities = {e["tableName"]: e for e in schema["entities"]}
     conn = sqlite3.connect(db_path)

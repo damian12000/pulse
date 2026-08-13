@@ -36,10 +36,12 @@ import org.robolectric.annotation.Config
 class BundledAssetTest {
 
     private var db: PulseDatabase? = null
+    private var catalogDb: FoodCatalogDatabase? = null
 
     @After
     fun tearDown() {
         db?.close()
+        catalogDb?.close()
     }
 
     private fun projectRoot(): File? {
@@ -146,18 +148,28 @@ class BundledAssetTest {
     // --- food ---------------------------------------------------------------
 
     /**
-     * The food asset is ~197 MB, so this is opt-in: it only runs when the file
-     * is present, and it deliberately does a handful of cheap indexed lookups
-     * rather than anything that would scan 326k rows.
+     * The food catalog is opened by [FoodCatalogDatabase], **not**
+     * [PulseDatabase] — it is a separate downloaded file with its own identity
+     * hash. Opening it with the wrong database class fails with a
+     * schema-mismatch error, which is precisely what this asserts against.
+     *
+     * ~197 MB, so this is opt-in: it runs only when the file is present, and
+     * does a handful of cheap indexed lookups rather than scanning 326k rows.
      */
     @Test
-    fun `room opens the bundled food database and resolves a barcode`() = runTest {
+    fun `room opens the bundled food catalog and resolves a barcode`() = runTest {
         val file = asset("opennutrition.db")
         assumeTrue("opennutrition.db not built — run tools/build_food_db.py --lean", file != null)
 
-        val dao = openFrom(file!!).foodDao()
+        val catalog = FoodCatalogDatabase.openIfPresent(
+            ApplicationProvider.getApplicationContext(),
+            file!!,
+        )
+        assertNotNull("catalog should open", catalog)
+        catalogDb = catalog
 
-        assertTrue("expected a large food database", dao.count() > 100_000)
+        val dao = catalog!!.catalogDao()
+        assertTrue("expected a large food catalog", dao.count() > 100_000)
 
         // Dave's Killer Bread — a real barcode verified in the source dataset.
         val hit = dao.findByBarcode("0013764027053")
@@ -175,9 +187,14 @@ class BundledAssetTest {
         val file = asset("opennutrition.db")
         assumeTrue("opennutrition.db not built", file != null)
 
-        val dao = openFrom(file!!).foodDao()
-        val results = dao.search("chicken breast", limit = 10)
+        val catalog = FoodCatalogDatabase.openIfPresent(
+            ApplicationProvider.getApplicationContext(),
+            file!!,
+        )
+        assertNotNull(catalog)
+        catalogDb = catalog
 
+        val results = catalog!!.catalogDao().search("chicken breast", limit = 10)
         assertTrue("expected chicken results", results.isNotEmpty())
         assertTrue(results.all { it.food.kcalPer100 >= 0 })
     }
