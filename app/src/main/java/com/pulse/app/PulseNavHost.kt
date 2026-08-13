@@ -14,8 +14,12 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.NavType
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import com.pulse.feature.food.CreateFoodScreen
 import com.pulse.feature.food.FoodSearchScreen
+import com.pulse.feature.scanner.ScannerScreen
 
 /**
  * Five bottom-bar destinations (PHASE2_ARCHITECTURE.md §7.1).
@@ -31,6 +35,14 @@ enum class TopLevelDestination(val route: String, val label: String) {
     WORKOUT("workout", "Workout"),
     PROGRESS("progress", "Progress"),
     PROFILE("profile", "Profile"),
+}
+
+object Routes {
+    const val SCANNER = "scanner"
+    const val CREATE_FOOD = "create_food?barcode={barcode}&name={name}"
+
+    fun createFood(barcode: String?, name: String?): String =
+        "create_food?barcode=${barcode.orEmpty()}&name=${name.orEmpty()}"
 }
 
 @Composable
@@ -72,12 +84,46 @@ fun PulseNavHost() {
             composable(TopLevelDestination.HOME.route) { Placeholder("Home") }
             composable(TopLevelDestination.FOOD.route) {
                 FoodSearchScreen(
-                    onScanClicked = { /* scanner — next */ },
+                    onScanClicked = { navController.navigate(Routes.SCANNER) },
                 )
             }
             composable(TopLevelDestination.WORKOUT.route) { Placeholder("Workout") }
             composable(TopLevelDestination.PROGRESS.route) { Placeholder("Progress") }
             composable(TopLevelDestination.PROFILE.route) { Placeholder("Profile") }
+
+            // Full-screen, not a tab: the scanner is an immersive flow, and so
+            // is manual food creation reached from a failed scan
+            // (PHASE2_ARCHITECTURE.md §7.1).
+            composable(Routes.SCANNER) {
+                ScannerScreen(
+                    onLogFood = { foodId ->
+                        navController.navigate(Routes.createFood(null, null)) {
+                            popUpTo(Routes.SCANNER) { inclusive = true }
+                        }
+                    },
+                    onCreateFood = { barcode, suggestedName ->
+                        navController.navigate(Routes.createFood(barcode, suggestedName)) {
+                            popUpTo(Routes.SCANNER) { inclusive = true }
+                        }
+                    },
+                    onClose = { navController.popBackStack() },
+                )
+            }
+
+            composable(
+                route = Routes.CREATE_FOOD,
+                arguments = listOf(
+                    navArgument("barcode") { nullable = true; defaultValue = null; type = NavType.StringType },
+                    navArgument("name") { nullable = true; defaultValue = null; type = NavType.StringType },
+                ),
+            ) { entry ->
+                CreateFoodScreen(
+                    barcode = entry.arguments?.getString("barcode"),
+                    suggestedName = entry.arguments?.getString("name"),
+                    onSaved = { navController.popBackStack() },
+                    onCancel = { navController.popBackStack() },
+                )
+            }
         }
     }
 }
