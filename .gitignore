@@ -1,0 +1,46 @@
+# --- Secrets -----------------------------------------------------------------
+# API keys live here (all free tiers, but still never committed)
+local.properties
+*.keystore
+*.jks
+
+# --- Large data artifacts ----------------------------------------------------
+# None of this belongs in git. All of it is reproducible from tools/ — see
+# tools/README.md for the pipeline.
+#
+#   data/raw      ~331 MB  source datasets (downloaded)
+#   data/build    ~199 MB  built databases
+#   data/release   ~68 MB  compressed assets -> uploaded to a GitHub release
+#
+data/raw/
+data/build/
+data/release/
+
+# --- Local toolchain (~467 MB) -----------------------------------------------
+# Project-local JDK and Gradle so the build is reproducible without a system
+# install. Absolutely not committed. See docs/BUILD_SETUP.md to recreate.
+.tooling/
+
+# --- Android / Gradle --------------------------------------------------------
+*.iml
+.gradle/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+release/
+app/release/
+
+# --- IDE ---------------------------------------------------------------------
+.idea/
+*.hprof
+
+# --- OS ----------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+
+# --- Python tooling ----------------------------------------------------------
+__pycache__/
+*.pyc
+.venv/
+venv/

@@ -1,0 +1,44 @@
+PULSE bundled data — licensing and attribution
+==============================================
+
+These database files are DERIVED DATABASES built from open datasets. They are
+made available under the Open Database License (ODbL) v1.0:
+
+    https://opendatacommons.org/licenses/odbl/1-0/
+
+You are free to share, adapt and use them, including commercially, provided you
+attribute the sources, keep any derivative database under ODbL, and do not use
+technical measures to restrict others.
+
+Sources
+-------
+
+opennutrition.db
+    Built from the OpenNutrition Foods dataset.
+    Attribution: "OpenNutrition" — https://www.opennutrition.app
+    Licence: ODbL 1.0, contents under a modified DbCL 1.0.
+
+    That dataset in turn incorporates data from Open Food Facts.
+    Attribution: "(c) Open Food Facts contributors"
+        https://world.openfoodfacts.org
+    Licence: ODbL 1.0.
+
+    It also incorporates public food composition data from:
+      - USDA FoodData Central (public domain, CC0)
+      - Canadian Nutrient File, Health Canada (Open Government Licence - Canada)
+      - Frida, DTU National Food Institute (Denmark)
+      - AUSNUT, Food Standards Australia New Zealand
+
+exercises.db
+    Built from free-exercise-db — https://github.com/yuhonas/free-exercise-db
+    Dataset released into the public domain (Unlicense).
+
+Modifications
+-------------
+
+Records were filtered, normalised to per-100 g units, de-duplicated, indexed for
+full-text search, and reduced to the fields PULSE uses. Nutrition values are
+unchanged from source. No new nutritional data was created.
+
+Build tooling that reproduces these files from the original sources is in
+tools/ in the PULSE repository.
