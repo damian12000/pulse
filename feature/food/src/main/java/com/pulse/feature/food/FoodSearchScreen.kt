@@ -98,6 +98,10 @@ fun FoodSearchScreen(
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
             )
 
+            // Offers the food catalog download when it's missing, and shows
+            // progress while it runs. Disappears entirely once ready.
+            CatalogPromptCard()
+
             // Tabs are hidden while searching — a query searches everything, so
             // showing "Recent / Frequent" alongside results would be a lie.
             if (state.query.isBlank()) {

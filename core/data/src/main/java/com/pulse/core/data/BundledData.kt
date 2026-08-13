@@ -6,6 +6,11 @@ import com.pulse.core.network.AssetDownloader
 import com.pulse.core.network.DownloadProgress
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
@@ -78,6 +83,13 @@ class BundledDataManager @Inject constructor(
     @Volatile
     private var catalog: FoodCatalogDatabase? = null
 
+    /**
+     * Application-lifetime scope. The download outlives any screen, so it must
+     * not hang off a ViewModel.
+     */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var downloadJob: Job? = null
+
     private val catalogFile: File
         get() = File(dataDir(), BundledAsset.FOOD_CATALOG.fileName)
 
@@ -104,6 +116,30 @@ class BundledDataManager @Inject constructor(
 
     fun isDownloaded(): Boolean =
         catalogFile.exists() && catalogFile.length() > MIN_PLAUSIBLE_BYTES
+
+    /**
+     * Starts the download if one isn't already running.
+     *
+     * **Owned by this singleton, not by a ViewModel.** A `viewModelScope` job is
+     * cancelled when the screen goes away, which would abandon a 67 MB transfer
+     * the moment the user switched tabs. Progress is observed through [state],
+     * so any screen can attach to a download already in flight.
+     *
+     * Idempotent: calling it twice does not start a second download.
+     */
+    fun startDownload() {
+        if (downloadJob?.isActive == true) return
+        downloadJob = scope.launch {
+            downloadCatalog().collect { /* state is published via [state] */ }
+        }
+    }
+
+    /** Cancels an in-flight download. The partial file is kept, so resuming is free. */
+    fun cancelDownload() {
+        downloadJob?.cancel()
+        downloadJob = null
+        if (_state.value !is CatalogState.Ready) _state.value = CatalogState.Absent
+    }
 
     /**
      * Downloads the catalog, reporting progress.
